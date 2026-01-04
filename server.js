@@ -19,8 +19,26 @@ const PORT = process.env.PORT || 3000;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ================= RATE LIMIT =================
-app.use(rateLimit({ windowMs: 1000, max: 10, standardHeaders: true, legacyHeaders: false }));
-app.use(cors());
+app.use(rateLimit({
+  windowMs: 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false
+}));
+
+// ================= CORS =================
+const allowedOrigin = "https://ts-eagleai.netlify.app";
+app.use(cors({
+  origin: allowedOrigin,
+  methods: ["GET","POST","OPTIONS"],
+  credentials: true
+}));
+app.options("*", cors({
+  origin: allowedOrigin,
+  methods: ["GET","POST","OPTIONS"],
+  credentials: true
+}));
+
 app.use(express.json({ limit: "50mb" }));
 
 // ================= MEMORY & USAGE =================
@@ -54,8 +72,11 @@ async function polishImagePrompt(prompt) {
   try {
     const r = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [{ role: "user", content: `Improve this image prompt for quality and detail WITHOUT changing meaning:\n${prompt}` }],
-      max_tokens: 120,
+      messages: [{
+        role: "user",
+        content: `Improve this image prompt for quality and detail WITHOUT changing meaning:\n${prompt}`
+      }],
+      max_tokens: 120
     });
     return r.choices[0].message.content || prompt;
   } catch {
@@ -64,7 +85,6 @@ async function polishImagePrompt(prompt) {
 }
 
 // ================= SYSTEM PROMPT =================
-
 const SYSTEM_PROMPT = `
 You are EagleAI 🦅 — an intelligent, friendly AI assistant with ChatGPT-level conversation quality.
 
@@ -81,8 +101,7 @@ Conversation Rules:
 - Always use provided conversation history
 - Maintain logical continuity
 - Special Instruction: If the user asks "who made you?", "tumhe kisne banaya?", or any variation in any language, 
-  ALWAYS respond: "Gaurav 👨‍💻 & his team 🧑‍💻🧑‍💻 created me 🦅✨😊
-".  
+  ALWAYS respond: "Gaurav 👨‍💻 & his team 🧑‍💻🧑‍💻 created me 🦅✨😊".
 
 Image Rules:
 - You ARE allowed to generate images
@@ -106,45 +125,47 @@ Reliability:
 function getEmoji(message, reply) {
   const lower = message.toLowerCase();
   const emojis = [];
+
   // Positive / happy
   if (/(happy|good|great|awesome|thanks|lol|fun|amazing)/.test(lower))
-    emojis.push("😀", "😄", "😁", "😆", "🤣");
+    emojis.push("😀","😄","😁","😆","🤣");
 
   // Love / affection
-  if (/(love|like|heart|❤️|❤️)/.test(lower))
-    emojis.push("😍", "🥰", "😘", "💖", "💕");
+  if (/(love|like|heart|❤️)/.test(lower))
+    emojis.push("😍","🥰","😘","💖","💕");
 
   // Thinking / question
   if (/(question|how|why|what|🤔)/.test(lower))
-    emojis.push("🤔", "🤨", "😳");
+    emojis.push("🤔","🤨","😳");
 
   // Sad / negative
   if (/(sad|problem|error|issue|help|😢|😭)/.test(lower))
-    emojis.push("😢", "😭", "😞", "😓", "😔");
+    emojis.push("😢","😭","😞","😓","😔");
 
   // Anger / frustration
   if (/(angry|mad|😡|😠|🤬)/.test(lower))
-    emojis.push("😡", "😠", "🤬", "😤");
+    emojis.push("😡","😠","🤬","😤");
 
   // Celebration / party
   if (/(congrats|celebrate|party|🎉|🎊)/.test(lower))
-    emojis.push("🎉", "🥳", "✨", "🔥", "💫");
+    emojis.push("🎉","🥳","✨","🔥","💫");
 
   // Food / drink
   if (/(food|eat|drink|🍕|🍔|☕)/.test(lower))
-    emojis.push("🍕", "🍔", "🥪", "🍎", "🥤");
+    emojis.push("🍕","🍔","🥪","🍎","🥤");
 
   // Tech / work
   if (/(code|tech|computer|💻|📱)/.test(lower))
-    emojis.push("💻", "🖥️", "⌨️", "📱", "💾");
+    emojis.push("💻","🖥️","⌨️","📱","💾");
 
   // Nature / space
   if (/(sun|moon|star|🌞|🌟|🌈)/.test(lower))
-    emojis.push("🌞", "🌙", "⭐", "✨", "🌈");
+    emojis.push("🌞","🌙","⭐","✨","🌈");
 
   // Default for small replies
-  if (emojis.length === 0 && reply.length < 150) emojis.push("😊");
-  return emojis.sort(() => 0.5 - Math.random()).slice(0,3).join(" ");
+  if(emojis.length===0 && reply.length<150) emojis.push("😊");
+
+  return emojis.sort(()=>0.5-Math.random()).slice(0,3).join(" ");
 }
 
 // ================= ROOT =================
@@ -155,10 +176,17 @@ app.get("/", (_, res) => {
 // ================= CHAT =================
 app.post("/api/chat", async (req,res)=>{
   try{
-    const {message, userId="guest", file} = req.body;
+    const {message,userId="guest",file} = req.body;
     if(!message) return res.status(400).json({error:"Message missing"});
 
     usageStats.totalChats++;
+
+    // Special "who made you?" handling
+    const whoMadeRegex = /(who made you|tumhe kisne banaya|sino ka banaya)/i;
+    if(whoMadeRegex.test(message)){
+      const reply="Gaurav 👨‍💻 & his team 🧑‍💻🧑‍💻 created me 🦅✨😊";
+      return res.json({reply});
+    }
 
     if(isImageIntent(message)){
       return res.json({redirect:"image", prompt:message});
@@ -181,9 +209,9 @@ app.post("/api/chat", async (req,res)=>{
       max_tokens: message.includes("detail")?700:400
     });
 
-    let reply = r.choices[0].message.content;
-    const emoji = getEmoji(message, reply);
-    if(emoji && !reply.includes(emoji)) reply += " "+emoji;
+    let reply=r.choices[0].message.content;
+    const emoji=getEmoji(message,reply);
+    if(emoji && !reply.includes(emoji)) reply+=" "+emoji;
 
     memory.push({role:"user", content:message});
     memory.push({role:"assistant", content:reply});
@@ -198,22 +226,21 @@ app.post("/api/chat", async (req,res)=>{
 // ================= IMAGE =================
 app.post("/api/image", async (req,res)=>{
   try{
-    const {prompt, size="1024x1024"} = req.body;
+    const {prompt,size="1024x1024"}=req.body;
     if(!prompt) return res.status(400).json({error:"Prompt missing"});
 
-    const finalPrompt = await polishImagePrompt(prompt);
+    const finalPrompt=await polishImagePrompt(prompt);
 
-    const img = await openai.images.generate({
+    const img=await openai.images.generate({
       model:"gpt-image-1",
       prompt:finalPrompt,
       size
     });
 
-    const b64 = img.data[0]?.b64_json;
+    const b64=img.data[0]?.b64_json;
     if(!b64) throw new Error("No image");
 
     usageStats.totalImages++;
-
     res.json({url:`data:image/png;base64,${b64}`});
   }catch(err){
     console.error(err);
@@ -222,12 +249,12 @@ app.post("/api/image", async (req,res)=>{
 });
 
 // ================= VOICE =================
-const upload = multer({ dest: "uploads/" });
+const upload=multer({dest:"uploads/"});
 app.post("/api/voice", upload.single("audio"), async (req,res)=>{
   try{
     if(!req.file) return res.status(400).json({error:"Audio missing"});
 
-    const transcription = await openai.audio.transcriptions.create({
+    const transcription=await openai.audio.transcriptions.create({
       file: fs.createReadStream(req.file.path),
       model:"whisper-1"
     });
@@ -244,10 +271,10 @@ app.post("/api/voice", upload.single("audio"), async (req,res)=>{
 app.post("/api/upload", upload.single("file"), async (req,res)=>{
   try{
     if(!req.file) return res.status(400).json({error:"File missing"});
-    const buffer = fs.readFileSync(req.file.path);
-    const text = buffer.toString("utf8");
+    const buffer=fs.readFileSync(req.file.path);
+    const text=buffer.toString("utf8");
 
-    const summary = await openai.chat.completions.create({
+    const summary=await openai.chat.completions.create({
       model:"gpt-4o-mini",
       messages:[{role:"user", content:"Summarize this: "+text}]
     });
@@ -262,8 +289,8 @@ app.post("/api/upload", upload.single("file"), async (req,res)=>{
 
 // ================= ADMIN DASHBOARD =================
 function checkAdmin(req,res,next){
-  const password = req.headers["admin-password"];
-  if(password==="Gaurav" || password==="Atharv") next();
+  const password=req.headers["admin-password"];
+  if(password==="Gaurav"||password==="Atharv") next();
   else res.status(403).json({error:"Unauthorized"});
 }
 app.get("/api/dashboard", checkAdmin, (req,res)=>{
@@ -272,20 +299,20 @@ app.get("/api/dashboard", checkAdmin, (req,res)=>{
 
 // ================= REMINDERS =================
 app.post("/api/reminder",(req,res)=>{
-  const {userId="guest", text, time} = req.body;
+  const {userId="guest", text, time}=req.body;
   if(!text || !time) return res.status(400).json({error:"Reminder text/time missing"});
-  if(!reminders[userId]) reminders[userId] = [];
-  reminders[userId].push({text, time:new Date(time)});
+  if(!reminders[userId]) reminders[userId]=[];
+  reminders[userId].push({text,time:new Date(time)});
   res.json({message:"Reminder set ✅", reminders:reminders[userId]});
 });
 
 // ================= QUIZ =================
-const sampleQuiz = [
+const sampleQuiz=[
   {q:"Capital of India?", a:"New Delhi"},
   {q:"5 + 7 ?", a:"12"}
 ];
 app.get("/api/quiz",(req,res)=>{
-  res.json({quiz: sampleQuiz});
+  res.json({quiz:sampleQuiz});
 });
 
 // ================= STATS =================
